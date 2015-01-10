@@ -2,7 +2,7 @@
 # debug = False
 #
 ## Run quiet
-# quit = False
+# quiet = False
 #
 ## Enable profiling
 # profile = False
@@ -10,6 +10,9 @@
 # repo_logfile = None
 # save_logfile = None
 # no_parse = False
+#
+# Writable path for CVSAnaly (used for caching, maybe config, etc.)
+# writable_path = None
 #
 ## Database parameters
 # db_driver = 'mysql'

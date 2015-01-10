@@ -24,13 +24,24 @@
 # To execute this test, run: "python -m unittest tests.file_path_test" in the
 # root of the project
 
-import unittest
+import sys
 import os
-import os.path
 import shutil
 import tempfile
-import pysqlite2.dbapi2 as db
+import sqlite3 as db
 import pycvsanaly2.main
+from pycvsanaly2.extensions.FileRevs import FileRevs
+from repositoryhandler.backends import create_repository_from_path
+from pycvsanaly2.Database import create_database
+
+requiredVersion = (2,7)
+currentVersion = sys.version_info
+
+if currentVersion >= requiredVersion:
+    import unittest
+else:
+    import unittest2 as unittest
+
 
 class FilePathTestCase(unittest.TestCase):
 
@@ -49,11 +60,16 @@ class FilePathTestCase(unittest.TestCase):
         # run CVSAnaly on test repository
         opened, temp_file_name = tempfile.mkstemp('.db', 'cvsanaly-test')
         os.close(opened)
-        command_line_options = ["--db-driver=sqlite", "-d", temp_file_name, self.TEST_REPOSITORY_PATH]
-        pycvsanaly2.main.main (command_line_options)
+        command_line_options = [
+            "--db-driver=sqlite",
+            "-d",
+            temp_file_name,
+            self.TEST_REPOSITORY_PATH
+        ]
+        pycvsanaly2.main.main(command_line_options)
 
         # fetch generated result
-        connection = db.connect (temp_file_name)
+        connection = db.connect(temp_file_name)
         cursor = connection.cursor()
         cursor.execute("SELECT file_path FROM file_links")
         actual = cursor.fetchall()
@@ -61,10 +77,55 @@ class FilePathTestCase(unittest.TestCase):
         connection.close()
         os.remove(temp_file_name)
 
-        expected = [(u'aaa',), (u'aaa/otherthing',), (u'aaa/something',), (u'bbb',), (u'bbb/bthing',), (u'bbb/something',), (u'bbb/ccc',), (u'bbb/ccc/yet_anotherthing',), (u'ddd',), (u'ddd/finalthing',), (u'eee',), (u'eee/fff',), (u'eee/fff/wildthing',)]
+        expected = [
+            (u'aaa',),
+            (u'aaa/otherthing',),
+            (u'aaa/something',),
+            (u'bbb',),
+            (u'bbb/bthing',),
+            (u'bbb/something',),
+            (u'bbb/ccc',),
+            (u'bbb/ccc/yet_anotherthing',),
+            (u'bbb/something.renamed',),
+            (u'ddd',),
+            (u'ddd/finalthing',),
+            (u'eee',),
+            (u'eee/fff',),
+            (u'eee/fff/wildthing',),
+			(u'aaa/otherthing.renamed',)
+        ]
 
-        self.assertItemsEqual (actual, expected)
+        self.assertItemsEqual(actual, expected)
+
+    def test_branching_file_paths(self):
+        # This part should be moved to set up, but in case no one from MetricsGrimoire
+        # is interested in this pull request (which is the case for all my pull requests
+        # so far), it is easier to keep compatible with the main repository this way
+        opened, temp_file_name = tempfile.mkstemp('.db', 'cvsanaly-test')
+        os.close(opened)
+        command_line_options = ["--db-driver=sqlite", "-d", temp_file_name, self.TEST_REPOSITORY_PATH]
+        pycvsanaly2.main.main(command_line_options)
+
+        connection = db.connect(temp_file_name)
+        cursor = connection.cursor()
+        cursor.execute('SELECT id FROM repositories')
+        database = create_database('sqlite', temp_file_name)
+        fr = FileRevs(database, connection, cursor, cursor.fetchone()[0])
+        repo = create_repository_from_path(self.TEST_REPOSITORY_PATH)
+        for revision, commit_id, file_id, action_type, composed in fr:
+            if revision == '51a3b654f252210572297f47597b31527c475fb8':
+                # Getting the latest file_links record
+                actual = fr.get_path()
+                self.assertEqual(u'aaa/otherthing.renamed', actual)
+                # Using git merge-base
+                actual = fr.get_path(repo, self.TEST_REPOSITORY_PATH)
+                self.assertEqual(u'aaa/otherthing', actual)
+
+
+        cursor.close()
+        connection.close()
+        os.remove(temp_file_name)
 
 if __name__ == "__main__":
-    suite = unittest.TestLoader().loadTestsFromTestCase(UnicodeTestCase)
+    suite = unittest.TestLoader().loadTestsFromTestCase(FilePathTestCase)
     unittest.TextTestRunner(verbosity=2).run(suite)
